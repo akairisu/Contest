@@ -11,6 +11,7 @@ CONSTANT = 1
 INCREASE = 2
 DECREASE = 3
 ACCIDENT = 4
+TRANSFER = 5
 AUTO = 0
 HUMAN = 1
 CAR_LEN = 4.5
@@ -23,6 +24,7 @@ TURN_ANGLE = radians(45)
 SAFEDIS = 15
 AUTODIS = 5  #AUTODIS denotes the distance between AUTOCAR and its front car
 WAITDIS = 20
+ROTATETIME = 200
 
 
 #define parameter
@@ -30,6 +32,7 @@ Time = 100
 Len = 60
 Initspd = 10
 Accel = 10
+transfer_accel = 10
 Percent = 50
 RedLight = 10
 GreenLight = 10
@@ -57,6 +60,11 @@ def is_red(nowtime):
     else:
         return False
 
+def LANE_POS(i):
+    return 10 - LANE_WIDTH * i
+    
+    
+    
 #Initial State
 
 car_list = []
@@ -80,9 +88,9 @@ for i in range(0, LANE_NUM):
             frontpos = Len - random.random() * CAR_LEN
 
         if TYPE == AUTO:
-            car = ellipsoid(TYPE = TYPE, STAT = CONSTANT, size = vec(CAR_LEN, CAR_WIDTH, 1 ), pos = vec(frontpos - AUTODIS - random.random() * CAR_LEN, 10 - LANE_WIDTH * i, 0), v = vec(Initspd, 0, 0))
+            car = ellipsoid(TYPE = TYPE, STAT = CONSTANT, size = vec(CAR_LEN, CAR_WIDTH, 1 ), pos = vec(frontpos - AUTODIS - random.random() * CAR_LEN, LANE_POS(i), 0), v = vec(Initspd, 0, 0))
         else:
-            car = box(TYPE = TYPE, STAT = CONSTANT, length = CAR_LEN, width = 1, height = CAR_WIDTH, pos = vec(frontpos - SAFEDIS - random.random() * CAR_LEN, 10 - LANE_WIDTH * i, 0), v = vec(Initspd, 0, 0))
+            car = box(TYPE = TYPE, STAT = CONSTANT, length = CAR_LEN, width = 1, height = CAR_WIDTH, pos = vec(frontpos - SAFEDIS - random.random() * CAR_LEN, LANE_POS(i), 0), v = vec(Initspd, 0, 0))
 
         car.color = color.blue
         car_list[i].append(car)
@@ -104,7 +112,11 @@ decrease_time = {}
 increase_time = {}
 counttime = 0
 accident_time = 0
-corresponding = []
+accident_lane = -1
+transfer_lane = -1
+corresponding = (math.inf, math.inf)
+finish_insert = 0
+
 
 #Start Simulation
 while True:
@@ -121,11 +133,44 @@ while True:
         nextredt = GreenLight - (math.floor(counttime * 100) % (RedLight * 100 + GreenLight * 100)) / 100
     else:
         nextredt = 0
+    
+    if finish_insert == 1:
+        
+        temp_dict = {}
+        for k in decrease_time.keys():
+            if k[0] == accident_lane and k[1] > corresponding[0]:
+                temp_dict[(k[0], k[1] - 1)] = decrease_time[k]
+            if k[0] == transfer_lane and k[1] > corresponding[1]:
+                temp_dict[(k[0], k[1] + 1)] = decrease_time[k]
+        decrease_time = copy.deepcopy(temp_dict)
+        temp_dict = {}
+        for k in increase_time.keys():
+            if k[0] == accident_lane and k[1] > corresponding[0]:
+                temp_dict[(k[0], k[1] - 1)] = increase_time[k]
+            if k[0] == transfer_lane and k[1] > corresponding[1]:
+                temp_dict[(k[0], k[1] + 1)] = increase_time[k]
+        increase_time = copy.deepcopy(temp_dict)
+        
+        car_list[accident_lane][corresponding[0]].rotate(axis = vec(0, 1, -1), angle = -TURN_ANGLE)
+        
+        
+        car_list[transfer_lane].insert(corresponding[1], car_list[accident_lane][corresponding[0]])
+        transfer_pos[transfer_lane].insert(corresponding[1], vec(math.inf, math.inf, math.inf))
+        
+        del car_list[accident_lane][corresponding[0]]
+        del transfer_pos[accident_lane][corresponding[0]]
+        
+        corresponding = (math.inf, math.inf)
+        
+        
+        finish_insert = 0
 
+    
     for i in range(0, LANE_NUM):
         if accident == 0 and counttime > 3:
             accident = 1
-        for j in range(firstcar[i], len(car_list[i])):
+        num_of_cars = len(car_list[i])
+        for j in range(firstcar[i], num_of_cars):
         
             next_state = -1
             
@@ -143,31 +188,48 @@ while True:
                 accident_lane = i
                 transfer_lane = i + 1
                 accident_pos = car_list[i][j].pos
-                accident_backcar = (i, j - 1)
-                
+                accident_backcar = (i, j + 1)
+
 #ifdef accident happened
             if accident == 3:
                 if car_list[i][j].TYPE == ACCIDENT: 
-                    car_list[i][j].rotate(axis = vec(0, 1, -1), angle = 0.01)
+                    car_list[i][j].rotate(axis = vec(0, 1, -1), angle = 0.1)
                 
-                if i == accident_lane and car_list[i][j].pos.x < accident_pos.x:
+                if i == accident_lane and car_list[i][j].pos.x < accident_pos.x and car_list[i][j].STAT != STOP:
+                    if car_list[i][j].pos.x + (car_list[i][j].v.x ** 2 ) / (2 * Accel) + car_list[i][j].v.x * 2 * dt > accident_pos.x - 2 * CAR_LEN:
+                        car_list[i][j].STAT = DECREASE
+                        next_state = DECREASE
+                    
+                
+                if (i, j) == accident_backcar:
                #     car_list[i][j].rotate(axis = vec(0, 1, -1), angle = 0.01)
+                    if car_list[i][j].pos.x + (car_list[i][j].v.x ** 2 ) / (2 * Accel) + car_list[i][j].v.x * 2 * dt < accident_pos.x - 2 * CAR_LEN:
+                        car_list[i][j].STAT = INCREASE
+                        next_state = INCREASE
+                    
                     if transfer_pos[i][j].x == math.inf:
-                        if car_list[i][j].pos.x > accident_pos.x - WAITDIS and car_list[i][j].STAT == STOP:
+                        if car_list[i][j].STAT == STOP:
                             transfer_pos[i][j] = vec(car_list[i][j].pos.x + LANE_WIDTH / math.tan(TURN_ANGLE), 10 - transfer_lane * LANE_WIDTH, 0)
-                            transfer_index = box(pos = transfer_pos[i][j], length = 3, width = 3, height = 3, color = color.white)
                             for k in range(firstcar[transfer_lane], len(car_list[transfer_lane])):
-                                if car_list[transfer_lane][k].pos.x + (car_list[transfer_lane][k].v.x ** 2) / (2 * Accel) <= (transfer_pos[i][j].x - CAR_LEN):
-                                    corresponding.append((j, k))
+                                if car_list[transfer_lane][k].pos.x + (car_list[transfer_lane][k].v.x ** 2) / (2 * Accel) <= (transfer_pos[i][j].x - 2 * CAR_LEN):
+                                    corresponding = (j, k)
                                     break
-                    else:
-                        for k in corresponding:
-                            if j == k[0]:
-                                if transfer_pos[i][j].x <= car_list[transfer_lane][k[1] - 1].pos.x - CAR_LEN:
-                                    car_list[i][j].rotate(axis = vec(0, 1, -1), angle = 0.005)
-                
-                
-                                
+                    elif corresponding != (math.inf, math.inf):
+                        if transfer_pos[i][j].x <= car_list[transfer_lane][corresponding[1] - 1].pos.x - CAR_LEN:    #when B car pass
+                            if car_list[i][j].axis.y >= -2.25 + TURN_ANGLE / ROTATETIME:
+                                car_list[i][j].rotate(axis = vec(0, 1, -1), angle = TURN_ANGLE / ROTATETIME)
+                            if car_list[i][j].pos.y > LANE_POS(transfer_lane):
+                                car_list[i][j].v.x += transfer_accel * math.cos(TURN_ANGLE) * dt
+                                car_list[i][j].v.y += transfer_accel * math.sin(-TURN_ANGLE) * dt
+                                car_list[i][j].STAT = TRANSFER
+                                next_state = TRANSFER
+                            else:
+                                car_list[i][j].v = vec(0, 0, 0)
+                                car_list[i][j].STAT = STOP
+                                next_state = STOP
+                                finish_insert = 1
+                    
+                                        
                                 
                 
 
@@ -262,16 +324,13 @@ while True:
                                     car_list[i][j].STAT = INCREASE
                                     nexrstate = INCREASE
                 
-                if i == transfer_lane:
-                    for k in corresponding:
-                        if j == k[1]:
-                            stop_pos = transfer_pos[accident_lane][k[0]].x - CAR_LEN
-                            now_pos = car_list[i][j].pos.x
-                            now_v = car_list[i][j].v.x
-                            if stop_pos - now_pos - now_v ** 2 / (2 * Accel) - now_v * 2 * dt <= 0:
-                                car_list[i][j].pos.y = 0
-                                car_list[i][j].STAT = DECREASE
-                                next_state = DECREASE
+                if i == transfer_lane and j == corresponding[1]:
+                    stop_pos = transfer_pos[accident_lane][corresponding[0]].x - 2 * CAR_LEN
+                    now_pos = car_list[i][j].pos.x
+                    now_v = car_list[i][j].v.x
+                    if stop_pos - now_pos - now_v ** 2 / (2 * Accel) - now_v * 2 * dt <= 0:
+                        car_list[i][j].STAT = DECREASE
+                        next_state = DECREASE
 
                 
 #endif accident happened
@@ -384,21 +443,19 @@ while True:
                     car_list[i][j].color = color.blue
                 else:
                     car_list[i][j].color = color.green
-                    
-            for k in corresponding:
-                if i == transfer_lane and j == k[1]:
-                    car_list[i][j].color = car_list[i][j].color
-
+            
+            if car_list[i][j].STAT == TRANSFER:
+                car_list[i][j].color = color.cyan
 
             if car_list[i][j].pos.x >= Len:
                 car_list[i][j].visible = False
 
                 
 #generate new car
-        if nexttype[i] == AUTO and car_list[i][newcarindex[i] - 1].pos.x > -Len + AUTODIS + random.random() * AUTODIS:
-            frontv = car_list[i][newcarindex[i] - 1].v.x
-            frontstat = car_list[i][newcarindex[i] - 1].STAT
-            frontcolor = car_list[i][newcarindex[i] - 1].color
+        if nexttype[i] == AUTO and car_list[i][len(car_list[i]) - 1].pos.x > -Len + AUTODIS + random.random() * AUTODIS:
+            frontv = car_list[i][len(car_list[i]) - 1].v.x
+            frontstat = car_list[i][len(car_list[i]) - 1].STAT
+            frontcolor = car_list[i][len(car_list[i]) - 1].color
             car = ellipsoid(TYPE = nexttype[i], STAT = frontstat, size = vec(CAR_LEN, CAR_WIDTH, 1), pos = vec(-Len, 10 - LANE_WIDTH * i, 0), v = vec(frontv, 0, 0), color = frontcolor)
             car_list[i].append(car)
             transfer_pos[i].append(vec(math.inf, math.inf, math.inf))
@@ -409,12 +466,12 @@ while True:
             else:
                 nexttype[i] = AUTO
 
-        if nexttype[i] == HUMAN and car_list[i][newcarindex[i] - 1].pos.x > -Len + SAFEDIS + random.random() * SAFEDIS:
+        if nexttype[i] == HUMAN and car_list[i][len(car_list[i]) - 1].pos.x > -Len + SAFEDIS + random.random() * SAFEDIS:
             if accident == 1 and i == 0:
                 accident = 2
-                frontv = car_list[i][newcarindex[i] - 1].v.x
-                forntstat = car_list[i][newcarindex[i] - 1].STAT
-                frontcolor = car_list[i][newcarindex[i] - 1].color
+                frontv = car_list[i][len(car_list[i]) - 1].v.x
+                frontstat = car_list[i][len(car_list[i]) - 1].STAT
+                frontcolor = car_list[i][len(car_list[i]) - 1].color
                 car = box(TYPE = ACCIDENT, STAT = frontstat, length = CAR_LEN, width = 1, height = CAR_WIDTH, pos = vec(-Len, 10 - LANE_WIDTH * i, 0), v = vec(Initspd + 2, 0, 0), color = color.orange)
                 car_list[i].append(car)
                 transfer_pos[i].append(vec(math.inf, math.inf, math.inf))
@@ -425,9 +482,9 @@ while True:
                 else:
                     nexttype[i] = AUTO
             else:
-                frontv = car_list[i][newcarindex[i] - 1].v.x
-                frontstat = car_list[i][newcarindex[i] - 1].STAT
-                frontcolor = car_list[i][newcarindex[i] - 1].color
+                frontv = car_list[i][len(car_list[i]) - 1].v.x
+                frontstat = car_list[i][len(car_list[i]) - 1].STAT
+                frontcolor = car_list[i][len(car_list[i]) - 1].color
                 car = box(TYPE = nexttype[i], STAT = frontstat, length = CAR_LEN, width = 1, height = CAR_WIDTH, pos = vec(-Len, 10 - LANE_WIDTH * i, 0), v = vec(frontv, 0, 0), color = frontcolor)
                 car_list[i].append(car)
                 transfer_pos[i].append(vec(math.inf, math.inf, math.inf))
@@ -442,6 +499,3 @@ while True:
     for i in range(0, LANE_NUM):
         for j in range(firstcar[i], len(car_list[i])):
             car_list[i][j].pos = car_list[i][j].pos + car_list[i][j].v * dt
-
-    
-    
