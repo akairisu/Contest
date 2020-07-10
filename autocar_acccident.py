@@ -1,6 +1,7 @@
 from vpython import *
 import random
 import math
+import copy
 
 scene2 = canvas(title = 'Simulation', width = 600, height = 200, center = vector(0,0,0), background = color.black)
 random.seed(8)
@@ -113,10 +114,15 @@ increase_time = {}
 counttime = 0
 accident_time = 0
 accident_lane = -1
+accident_pos = vec(math.inf, math.inf, math.inf)
+acctdent_front_pos = vec(math.inf, math.inf, math.inf) 
 transfer_lane = -1
 corresponding = (math.inf, math.inf)
+corresponding_return = (math.inf, math.inf)
 finish_insert = 0
-
+finish_return = 0
+trans_lane_pos = math.inf
+cur_lane_pos = math.inf
 
 #Start Simulation
 while True:
@@ -162,8 +168,41 @@ while True:
         
         corresponding = (math.inf, math.inf)
         
-        
         finish_insert = 0
+        
+        
+    if finish_return == 2:
+        
+        temp_dict = {}
+        for k in decrease_time.keys():
+            if k[0] == transfer_lane and k[1] > corresponding_return[0]:
+                temp_dict[(k[0], k[1] - 1)] = decrease_time[k]
+            if k[0] == accident_lane and k[1] > corresponding_return[1]:
+                temp_dict[(k[0], k[1] + 1)] = decrease_time[k]
+        decrease_time = copy.deepcopy(temp_dict)
+        temp_dict = {}
+        for k in increase_time.keys():
+            if k[0] == transfer_lane and k[1] > corresponding_return[0]:
+                temp_dict[(k[0], k[1] - 1)] = increase_time[k]
+            if k[0] == accident_lane and k[1] > corresponding_return[1]:
+                temp_dict[(k[0], k[1] + 1)] = increase_time[k]
+        increase_time = copy.deepcopy(temp_dict)
+        if corresponding != (math.inf, math.inf):
+            corresponding = (corresponding[0] + 1, corresponding[1] - 1)
+        
+        car_list[transfer_lane][corresponding_return[0]].rotate(axis = vec(0, 1, -1), angle = TURN_ANGLE)
+        
+        
+        car_list[accident_lane].insert(corresponding_return[1], car_list[transfer_lane][corresponding_return[0]])
+        transfer_pos[accident_lane].insert(corresponding_return[1], vec(math.inf, math.inf, math.inf))
+        
+        del car_list[transfer_lane][corresponding_return[0]]
+        del transfer_pos[transfer_lane][corresponding_return[0]]
+        
+        corresponding_return = (math.inf, math.inf)
+        accident_backcar = (accident_backcar[0], accident_backcar[1] + 1)
+        
+        finish_return = 0
 
     
     for i in range(0, LANE_NUM):
@@ -188,6 +227,7 @@ while True:
                 accident_lane = i
                 transfer_lane = i + 1
                 accident_pos = car_list[i][j].pos
+                accident_front_pos = car_list[i][j - 1].pos
                 accident_backcar = (i, j + 1)
 
 #ifdef accident happened
@@ -224,13 +264,37 @@ while True:
                                 car_list[i][j].STAT = TRANSFER
                                 next_state = TRANSFER
                             else:
-                                car_list[i][j].v = vec(0, 0, 0)
-                                car_list[i][j].STAT = STOP
-                                next_state = STOP
+                                car_list[i][j].v.y = 0
+                                car_list[i][j].STAT = INCREASE
+                                next_state = INCREASE
                                 finish_insert = 1
-                    
-                                        
                                 
+                if finish_return == 0:
+                    if i == transfer_lane and car_list[i][j].pos.x >= accident_front_pos.x + CAR_LEN and car_list[i][j].pos.x < accident_front_pos.x + 3 * CAR_LEN:
+                        if transfer_pos[i][j].x == math.inf:
+                            transfer_pos[i][j] = vec(car_list[i][j].pos.x + LANE_WIDTH / math.tan(TURN_ANGLE), 10 - accident_lane * LANE_WIDTH, 0)
+                            trans_lane_pos = car_list[accident_lane][accident_backcar[1] - 3].pos.x
+                            cur_lane_pos = car_list[i][j - 1].pos.x
+                        if trans_lane_pos > cur_lane_pos and trans_lane_pos - 2 * CAR_LEN >= transfer_pos[i][j].x:
+                            finish_return = 1
+                            corresponding_return = (j, accident_backcar[1] - 2)
+                            
+                if finish_return == 1 and (i, j) == (transfer_lane, corresponding_return[0]):    
+                    if car_list[i][j].axis.y <= 2.25 - TURN_ANGLE / ROTATETIME:
+                        car_list[i][j].rotate(axis = vec(0, 1, -1), angle = -TURN_ANGLE / ROTATETIME)
+                    if car_list[i][j].pos.y < LANE_POS(accident_lane):
+                        instant_v = (car_list[i][j].v.x ** 2 + car_list[i][j].v.y ** 2) ** 0.5 + transfer_accel * dt
+                        if instant_v >= Initspd:
+                            instant_v = 5
+                        car_list[i][j].v.x = instant_v * math.cos(TURN_ANGLE)
+                        car_list[i][j].v.y = instant_v * math.sin(TURN_ANGLE)
+                        car_list[i][j].STAT = TRANSFER
+                        next_state = TRANSFER
+                    else:
+                        car_list[i][j].v = vec(0, 0, 0)
+                        car_list[i][j].STAT = STOP
+                        next_state = STOP
+                        finish_return = 2                             
                 
 
                 if car_list[i][j].TYPE == AUTO:
