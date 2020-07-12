@@ -50,10 +50,10 @@ def reflec():
     return t
 
 def random_type():
-	if random.random() * 100 > Percent:
-		return HUMAN
-	else:
-		return AUTO
+    if random.random() * 100 > Percent:
+        return HUMAN
+    else:
+        return AUTO
 
 def is_red(nowtime):
     if (math.floor(nowtime * 100) % (RedLight * 100 + GreenLight * 100)) / 100 >= GreenLight:
@@ -72,14 +72,16 @@ car_list = []
 newcarindex = []
 firstcar = []
 transfer_pos = []
+rotate_count = []
 
 for i in range(0, LANE_NUM):
-	newcarindex.append(Carnum)
-	firstcar.append(0)
+    newcarindex.append(Carnum)
+    firstcar.append(0)
 
 for i in range(0, LANE_NUM):
     car_list.append([])
     transfer_pos.append([])
+    rotate_count.append([])
     for j in range(0, Carnum):
         TYPE = random_type()
 
@@ -96,6 +98,7 @@ for i in range(0, LANE_NUM):
         car.color = color.blue
         car_list[i].append(car)
         transfer_pos[i].append(vec(math.inf, math.inf, math.inf))
+        rotate_count[i].append(0)
         
 wall = box(length = 4, width = 1, height = 40, pos = vec(Len + 1, 0, 0), color = color.red)
 
@@ -111,6 +114,7 @@ for i in range(0, LANE_NUM):
 
 decrease_time = {}
 increase_time = {}
+rotating = {}
 counttime = 0
 accident_time = 0
 accident_lane = -1
@@ -129,7 +133,7 @@ while True:
     rate(1 / dt)    # set animation rate = 1 / dt
     counttime = counttime + dt
     if counttime >= Time:
-    	break
+        break
     if (is_red(counttime) == True):
         wall.color = color.red
     else:
@@ -141,30 +145,46 @@ while True:
         nextredt = 0
     
     if finish_insert == 1:
-        
         temp_dict = {}
         for k in decrease_time.keys():
             if k[0] == accident_lane and k[1] > corresponding[0]:
                 temp_dict[(k[0], k[1] - 1)] = decrease_time[k]
-            if k[0] == transfer_lane and k[1] > corresponding[1]:
+            elif k[0] == transfer_lane and k[1] > corresponding[1]:
                 temp_dict[(k[0], k[1] + 1)] = decrease_time[k]
+            else: 
+                temp_dict[k] = decrease_time[k]
         decrease_time = copy.deepcopy(temp_dict)
         temp_dict = {}
         for k in increase_time.keys():
             if k[0] == accident_lane and k[1] > corresponding[0]:
                 temp_dict[(k[0], k[1] - 1)] = increase_time[k]
-            if k[0] == transfer_lane and k[1] > corresponding[1]:
+            elif k[0] == transfer_lane and k[1] > corresponding[1]:
                 temp_dict[(k[0], k[1] + 1)] = increase_time[k]
+            else: 
+                temp_dict[k] = increase_time[k]
         increase_time = copy.deepcopy(temp_dict)
+        temp_dict = {}
+        for k in rotating.keys():
+            if k[0] == accident_lane and k[1] > corresponding[0]:
+                temp_dict[(k[0], k[1] - 1)] = rotating[k]
+            elif k[0] == transfer_lane and k[1] > corresponding[1]:
+                temp_dict[(k[0], k[1] + 1)] = rotating[k]
+            else: 
+                temp_dict[k] = rotating[k]
+        rotating = copy.deepcopy(temp_dict)
         
-        car_list[accident_lane][corresponding[0]].rotate(axis = vec(0, 1, -1), angle = -TURN_ANGLE)
+        if rotating.get((accident_lane, corresponding[0])) != None:
+            del rotating[(accident_lane, corresponding[0])]
         
         
         car_list[transfer_lane].insert(corresponding[1], car_list[accident_lane][corresponding[0]])
         transfer_pos[transfer_lane].insert(corresponding[1], vec(math.inf, math.inf, math.inf))
+        rotate_count[transfer_lane].insert(corresponding[1], ROTATETIME - rotate_count[accident_lane][corresponding[0]])
+        rotating[(transfer_lane, corresponding[1])] = (-TURN_ANGLE, 0)
         
         del car_list[accident_lane][corresponding[0]]
         del transfer_pos[accident_lane][corresponding[0]]
+        del rotate_count[accident_lane][corresponding[0]]
         
         corresponding = (math.inf, math.inf)
         
@@ -177,27 +197,43 @@ while True:
         for k in decrease_time.keys():
             if k[0] == transfer_lane and k[1] > corresponding_return[0]:
                 temp_dict[(k[0], k[1] - 1)] = decrease_time[k]
-            if k[0] == accident_lane and k[1] > corresponding_return[1]:
+            elif k[0] == accident_lane and k[1] > corresponding_return[1]:
                 temp_dict[(k[0], k[1] + 1)] = decrease_time[k]
+            else: 
+                temp_dict[k] = decrease_time[k]
         decrease_time = copy.deepcopy(temp_dict)
         temp_dict = {}
         for k in increase_time.keys():
             if k[0] == transfer_lane and k[1] > corresponding_return[0]:
                 temp_dict[(k[0], k[1] - 1)] = increase_time[k]
-            if k[0] == accident_lane and k[1] > corresponding_return[1]:
+            elif k[0] == accident_lane and k[1] > corresponding_return[1]:
                 temp_dict[(k[0], k[1] + 1)] = increase_time[k]
+            else: 
+                temp_dict[k] = increase_time[k]
         increase_time = copy.deepcopy(temp_dict)
+        temp_dict = {}
+        for k in rotating.keys():
+            if k[0] == transfer_lane and k[1] > corresponding_return[0]:
+                temp_dict[(k[0], k[1] - 1)] = rotating[k]
+            elif k[0] == accident_lane and k[1] > corresponding_return[1]:
+                temp_dict[(k[0], k[1] + 1)] = rotating[k]
+            else: 
+                temp_dict[k] = rotating[k]
+        rotating = copy.deepcopy(temp_dict)
         if corresponding != (math.inf, math.inf):
             corresponding = (corresponding[0] + 1, corresponding[1] - 1)
         
-        car_list[transfer_lane][corresponding_return[0]].rotate(axis = vec(0, 1, -1), angle = TURN_ANGLE)
-        
+        if rotating.get((transfer_lane, corresponding_return[0])) != None:
+            del rotating[(transfer_lane, corresponding_return[0])]
         
         car_list[accident_lane].insert(corresponding_return[1], car_list[transfer_lane][corresponding_return[0]])
         transfer_pos[accident_lane].insert(corresponding_return[1], vec(math.inf, math.inf, math.inf))
+        rotate_count[accident_lane].insert(corresponding_return[1], ROTATETIME - rotate_count[transfer_lane][corresponding_return[0]])
+        rotating[(accident_lane, corresponding_return[1])] = (TURN_ANGLE, 0)
         
         del car_list[transfer_lane][corresponding_return[0]]
         del transfer_pos[transfer_lane][corresponding_return[0]]
+        del rotate_count[transfer_lane][corresponding_return[0]]
         
         corresponding_return = (math.inf, math.inf)
         accident_backcar = (accident_backcar[0], accident_backcar[1] + 1)
@@ -256,8 +292,10 @@ while True:
                                     break
                     elif corresponding != (math.inf, math.inf):
                         if transfer_pos[i][j].x <= car_list[transfer_lane][corresponding[1] - 1].pos.x - CAR_LEN:    #when B car pass
-                            if car_list[i][j].axis.y >= -2.25 + TURN_ANGLE / ROTATETIME:
-                                car_list[i][j].rotate(axis = vec(0, 1, -1), angle = TURN_ANGLE / ROTATETIME)
+                            if rotate_count[i][j] == 0:
+                                if car_list[i][j].axis.y == 0:    
+                                    rotating[(i, j)] = (TURN_ANGLE, -2.25)
+                                    rotate_count[i][j] = ROTATETIME
                             if car_list[i][j].pos.y > LANE_POS(transfer_lane):
                                 car_list[i][j].v.x += transfer_accel * math.cos(TURN_ANGLE) * dt
                                 car_list[i][j].v.y += transfer_accel * math.sin(-TURN_ANGLE) * dt
@@ -279,9 +317,12 @@ while True:
                             finish_return = 1
                             corresponding_return = (j, accident_backcar[1] - 2)
                             
-                if finish_return == 1 and (i, j) == (transfer_lane, corresponding_return[0]):    
-                    if car_list[i][j].axis.y <= 2.25 - TURN_ANGLE / ROTATETIME:
-                        car_list[i][j].rotate(axis = vec(0, 1, -1), angle = -TURN_ANGLE / ROTATETIME)
+                if finish_return == 1 and (i, j) == (transfer_lane, corresponding_return[0]):
+                    
+                    if rotate_count[i][j] == 0:
+                        if car_list[i][j].axis.y == 0:    
+                            rotating[(i, j)] = (-TURN_ANGLE, 2.25)
+                            rotate_count[i][j] = ROTATETIME
                     if car_list[i][j].pos.y < LANE_POS(accident_lane):
                         instant_v = (car_list[i][j].v.x ** 2 + car_list[i][j].v.y ** 2) ** 0.5 + transfer_accel * dt
                         if instant_v >= Initspd:
@@ -523,6 +564,7 @@ while True:
             car = ellipsoid(TYPE = nexttype[i], STAT = frontstat, size = vec(CAR_LEN, CAR_WIDTH, 1), pos = vec(-Len, 10 - LANE_WIDTH * i, 0), v = vec(frontv, 0, 0), color = frontcolor)
             car_list[i].append(car)
             transfer_pos[i].append(vec(math.inf, math.inf, math.inf))
+            rotate_count[i].append(0)
             Carnum = Carnum + 1
             newcarindex[i] = newcarindex[i] + 1
             if random.random() * 100 > Percent:
@@ -539,6 +581,7 @@ while True:
                 car = box(TYPE = ACCIDENT, STAT = frontstat, length = CAR_LEN, width = 1, height = CAR_WIDTH, pos = vec(-Len, 10 - LANE_WIDTH * i, 0), v = vec(Initspd + 2, 0, 0), color = color.orange)
                 car_list[i].append(car)
                 transfer_pos[i].append(vec(math.inf, math.inf, math.inf))
+                rotate_count[i].append(0)
                 Carnum = Carnum + 1
                 newcarindex[i] = newcarindex[i] + 1
                 if random.random() * 100 > Percent:
@@ -552,14 +595,26 @@ while True:
                 car = box(TYPE = nexttype[i], STAT = frontstat, length = CAR_LEN, width = 1, height = CAR_WIDTH, pos = vec(-Len, 10 - LANE_WIDTH * i, 0), v = vec(frontv, 0, 0), color = frontcolor)
                 car_list[i].append(car)
                 transfer_pos[i].append(vec(math.inf, math.inf, math.inf))
+                rotate_count[i].append(0)
                 Carnum = Carnum + 1
                 newcarindex[i] = newcarindex[i] + 1
                 if random.random() * 100 > Percent:
                     nexttype[i] = HUMAN
                 else:
                     nexttype[i] = AUTO
-    
+                    
+    for i in range(0, LANE_NUM):
+        num_of_cars = len(car_list[i])
+        for j in range(firstcar[i], num_of_cars):
+            if rotating.get((i, j)) != None:
+                car_list[i][j].rotate(axis = vec(0, 1, -1), angle = rotating[(i, j)][0] / ROTATETIME)
+                rotate_count[i][j] -= 1
+                if rotate_count[i][j] == 0:
+                    if car_list[i][j].axis.y != rotating[(i, j)][1]:
+                        car_list[i][j].axis.y = car_list[i][j].axis.z = rotating[(i, j)][1]
+                    del rotating[(i, j)]
     
     for i in range(0, LANE_NUM):
-        for j in range(firstcar[i], len(car_list[i])):
+        num_of_cars = len(car_list[i])
+        for j in range(firstcar[i], num_of_cars):
             car_list[i][j].pos = car_list[i][j].pos + car_list[i][j].v * dt
